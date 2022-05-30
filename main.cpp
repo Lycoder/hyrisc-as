@@ -14,6 +14,28 @@
 #include "../log.hpp"
  
 static const std::string whitespace = " \n\r\t\f\v";
+
+std::string parse_escape(const std::string& s) {
+    std::stringstream ss {""};
+
+    for (size_t i = 0; i < s.length(); i++) {
+        if (s.at(i) == '\\') {
+            switch (s.at(i + 1)) {
+                case 'n' : ss << '\n'; i++; break;
+                case 't' : ss << '\t'; i++; break;
+                case '"' : ss << '\"'; i++; break;
+                case 'r' : ss << '\r'; i++; break;
+                case '0' : ss << '\0'; i++; break;
+                case '\\': ss << '\\'; i++; break;
+                default:  ss << s.at(i + 1); i++; break;
+            }       
+        } else {
+            ss << s.at(i);
+        }
+    }
+
+    return ss.str();
+}
  
 std::string ltrim(const std::string& s) {
     size_t start = s.find_first_not_of(whitespace);
@@ -59,8 +81,8 @@ std::string register_names[] = {
     "gp3" , "gp4" , "gp5" , "gp6" ,
     "gp7" , "gp8" , "gp9" , "gp10",
     "gp11", "gp12", "gp13", "gp14",
-    "a0"  , "a1"  , "a2"  , "fr0" ,
-    "a3"  , "a4"  , "a5"  , "fr1" ,
+    "a0"  , "a1"  , "a2"  , "rr0" ,
+    "a3"  , "a4"  , "a5"  , "rr1" ,
     "lr0" , "lr1" , "lr2" , "lr3" ,
     "ir"  , "br"  , "sp"  , "pc"
 };
@@ -199,6 +221,9 @@ struct operand_t {
 
 encoding_t decode_encoding(std::vector <operand_t>& operands) {
     switch (operands.size()) {
+        case 0: {
+            return NO_OPERAND;
+        }
         case 1: {
             switch (operands[0].type) {
                 case OPERAND_INTEGER: { return FLOW_COND_IMM16; } break;
@@ -293,7 +318,9 @@ int decode_mnemonic(std::string mnemonic, instruction_t* instruction) {
     if (mnemonic == "not")  { instruction->opcode = HY_NOT; return ID_NOT; }
     if (mnemonic == "neg")  { instruction->opcode = HY_NEG; return ID_NEG; }
     if (mnemonic == "inc")  { instruction->opcode = HY_INC; return ID_INC; }
+    if (mnemonic == "i")    { instruction->opcode = HY_INC; return ID_INC; }
     if (mnemonic == "dec")  { instruction->opcode = HY_DEC; return ID_DEC; }
+    if (mnemonic == "d")    { instruction->opcode = HY_DEC; return ID_DEC; }
     if (mnemonic == "rst")  { instruction->opcode = HY_RST; return ID_RST; }
     if (mnemonic == "tst")  { instruction->opcode = HY_TST; return ID_TST; }
     if (mnemonic == "cmp")  { instruction->opcode = HY_CMP; return ID_CMP; }
@@ -488,17 +515,17 @@ instruction_t decode_instruction(std::string mnemonic, std::vector <operand_t>& 
                     instruction.regy = operands[1].reg;
                 } break;
 
+                case REGX_IMM8:
                 case REGX_IMM16: {
-                    instruction.access_size = 1;
                     instruction.encoding = REGX_IMM16;
-                    instruction.sub_opcode = 0x6;
+                    instruction.sub_opcode = (instruction.access_size == 1) ? 4 : 3;
                     instruction.regx  = operands[0].reg;
                     instruction.imm16 = operands[1].integer;
                 } break;
 
                 case MEMORY_INDEXED: {
                     instruction.encoding = MEMORY_INDEXED;
-                    instruction.sub_opcode = (operands[1].type == OPERAND_SHIFTED_INDEX) ? 0x4 : 0x3;
+                    instruction.sub_opcode = (operands[1].type == OPERAND_SHIFTED_INDEX) ? 6 : 5;
                     instruction.regx      = operands[0].reg;
                     instruction.regy      = operands[1].base_register;
                     instruction.regz      = operands[1].index_register;
@@ -810,7 +837,14 @@ instruction_t decode_instruction(std::string mnemonic, std::vector <operand_t>& 
             switch (decode_encoding(operands)) {
                 case FLOW_COND_IMM16: {
                     instruction.encoding = FLOW_COND_IMM16;
+                    instruction.sub_opcode = 7;
                     instruction.imm16 = operands[0].integer;
+                } break;
+
+                case REGX: {
+                    instruction.encoding = FLOW_COND_INDEXED;
+                    instruction.sub_opcode = 5;
+                    instruction.regy = operands[0].reg;
                 } break;
 
                 // To-do
@@ -821,9 +855,9 @@ instruction_t decode_instruction(std::string mnemonic, std::vector <operand_t>& 
             switch (decode_encoding(operands)) {
                 case FLOW_COND_IMM16: {
                     instruction.encoding = FLOW_COND_IMM16;
+                    instruction.sub_opcode = 6;
                     instruction.imm16 = operands[0].integer;
                 } break;
-
                 // To-do
             }
         } break;
@@ -832,7 +866,14 @@ instruction_t decode_instruction(std::string mnemonic, std::vector <operand_t>& 
             switch (decode_encoding(operands)) {
                 case FLOW_COND_IMM16: {
                     instruction.encoding = FLOW_COND_IMM16;
+                    instruction.sub_opcode = 7;
                     instruction.imm16 = operands[0].integer;
+                } break;
+                
+                case REGX: {
+                    instruction.encoding = FLOW_COND_INDEXED;
+                    instruction.sub_opcode = 5;
+                    instruction.regy = operands[0].reg;
                 } break;
 
                 // To-do
@@ -840,13 +881,43 @@ instruction_t decode_instruction(std::string mnemonic, std::vector <operand_t>& 
         } break;
 
         case ID_RTLC: {
-            switch (decode_encoding(operands)) {
-                case FLOW_COND_IMM16: {
-                    instruction.encoding = FLOW_COND_IMM16;
-                    instruction.imm16 = operands[0].integer;
-                } break;
+            instruction.encoding = NO_OPERAND_COND;
+            instruction.sub_opcode = 7;
+        } break;
 
-                // To-do
+        case ID_SAL: {
+            switch (decode_encoding(operands)) {
+                case REGX_REGY: {
+                    instruction.encoding = REGX_REGY;
+                    instruction.sub_opcode = 7;
+                    instruction.regx = operands[0].reg;
+                    instruction.regy = operands[1].reg;
+                } break;
+                
+                case REGX_IMM16: {
+                    instruction.encoding = REGX_IMM16;
+                    instruction.sub_opcode = 6;
+                    instruction.regx = operands[0].reg;
+                    instruction.imm16 = operands[1].integer;
+                } break;
+            }
+        } break;
+
+        case ID_SAR: {
+            switch (decode_encoding(operands)) {
+                case REGX_REGY: {
+                    instruction.encoding = REGX_REGY;
+                    instruction.sub_opcode = 7;
+                    instruction.regx = operands[0].reg;
+                    instruction.regy = operands[1].reg;
+                } break;
+                
+                case REGX_IMM16: {
+                    instruction.encoding = REGX_IMM16;
+                    instruction.sub_opcode = 6;
+                    instruction.regx = operands[0].reg;
+                    instruction.imm16 = operands[1].integer;
+                } break;
             }
         } break;
     }
@@ -884,7 +955,9 @@ hyu32_t assemble_instruction(instruction_t instruction) {
         case REGX_REGY_REGZ     : return opcode | regx | regy | regz;
         case REGX_REGY_REGZ_REGW: return opcode | regx | regy | regz | regw;
         case MEMORY_INDEXED     : return opcode | regx | regy | regz | scale | size;
+        case FLOW_COND_INDEXED  : return opcode | cond | regy | regz | regw;
         case FLOW_COND_IMM16    : return opcode | cond | imm16;
+        case NO_OPERAND_COND    : return opcode | cond;
         default: _log(error, "Unsupported encoding %u", instruction.encoding);
     }
 }
@@ -903,12 +976,27 @@ struct value_t {
     hyu32_t value;
 };
 
+struct string_t {
+    hyu32_t addr;
+    std::string name;
+    std::string value;
+};
+
+struct blob_t {
+    hyu32_t addr;
+    std::string name;
+    size_t size;
+};
+
 struct hyrisc_assembler_t {
     assembly_error_t error;
     hyu32_t pos;
+    hyu32_t org;
 
     std::vector <value_t> labels;
     std::vector <value_t> values;
+    std::vector <string_t> strings;
+    std::vector <blob_t> blobs;
 };
 
 void skip_whitespace(char* c, std::istream* input) {
@@ -1121,12 +1209,14 @@ operand_t decode_operand(std::string text, hyrisc_assembler_t* state) {
 
     char c = stream.get();
 
-    if (c == '.') {
+    if (c == '.' || c == '!') {
         if (!state) {
             // Can't use labels or defines when there's no state
         }
 
         operand.type = OPERAND_INTEGER;
+
+        bool force_value = c == '!';
 
         c = stream.get();
 
@@ -1146,7 +1236,7 @@ operand_t decode_operand(std::string text, hyrisc_assembler_t* state) {
 
         if (label_it != std::end(state->labels)) {
             // Is label
-            operand.integer = (*label_it).value - (state->pos + 4);
+            operand.integer = force_value ? ((*label_it).value + state->org) : (*label_it).value - (state->pos + 4);
 
             return operand;
         }
@@ -1164,7 +1254,35 @@ operand_t decode_operand(std::string text, hyrisc_assembler_t* state) {
             return operand;
         }
 
-        // else couldn't find symbol
+        auto string_it = std::find_if(
+            std::begin(state->strings),
+            std::end(state->strings),
+            [name] (string_t string) { return string.name == name; }
+        );
+
+        if (string_it != std::end(state->strings)) {
+            // Is value
+            operand.integer = force_value ? (*string_it).value.size() : ((*string_it).addr + state->org);
+
+            return operand;
+        }
+
+        auto blob_it = std::find_if(
+            std::begin(state->blobs),
+            std::end(state->blobs),
+            [name] (blob_t blob) { return blob.name == name; }
+        );
+
+        if (blob_it != std::end(state->blobs)) {
+            // Is value
+            operand.integer = force_value ? (*blob_it).size : ((*blob_it).addr + state->org);
+
+            return operand;
+        }
+
+        // if (pass) {
+        //     _log(warning, "Couldn't find symbol \"%s\", defaulting to 0", name.c_str());
+        // }
     }
 
     if (std::isdigit(c) || (c == '-')) {
@@ -1248,7 +1366,7 @@ hyu32_t assemble(char& c, std::istream* input, hyrisc_assembler_t* state = nullp
     return assemble_instruction(instruction);
 }
 
-bool parse_preprocessor(char* c, std::istream* input, hyrisc_assembler_t* state) {
+bool parse_preprocessor(char* c, std::istream* input, std::ostream* output, hyrisc_assembler_t* state, int pass) {
     // Ignore leading whitespace
     while (std::isblank(*c) || std::isspace(*c) || (*c == '\x0d') || (*c == '\x0a'))
         *c = input->get();
@@ -1277,11 +1395,12 @@ bool parse_preprocessor(char* c, std::istream* input, hyrisc_assembler_t* state)
 
             hyu32_t addr = parse_integer(c, input);
 
-            _log(debug, "Setting origin to %08x", addr);
+            if (!pass)
+                _log(debug, "Setting origin to %08x", addr);
 
-            state->pos = addr;
+            state->org = addr;
         }
-        
+
         if (command == "def") {
             while (std::isspace(*c))
                 *c = input->get();
@@ -1311,9 +1430,195 @@ bool parse_preprocessor(char* c, std::istream* input, hyrisc_assembler_t* state)
             while (std::isblank(*c) || std::isspace(*c) || (*c == '\x0d') || (*c == '\x0a'))
                 *c = input->get();
             
-            state->values.push_back(value_t{ name, value });
+            if (!pass) {
+                state->values.push_back(value_t{ name, value });
 
-            _log(debug, "Creating value %s:%08x", name.c_str(), value);
+                _log(debug, "Creating value %s:%08x", name.c_str(), value);
+            }
+        }
+
+        if (command == "defs") {
+            string_t string;
+
+            string.addr = state->pos;
+
+            while (std::isspace(*c))
+                *c = input->get();
+        
+            if (!(std::isalpha(*c) || (*c == '_'))) {
+                // Expected number after org
+            }
+
+            while (std::isalnum(*c) || (*c == '_')) {
+                string.name.append(1, *c);
+
+                *c = input->get();
+            }
+
+            while (std::isspace(*c))
+                *c = input->get();
+            
+            if (*c != '\"') {
+                // Expected string
+            }
+
+            *c = input->get();
+
+            while (*c != '\"') {
+                string.value.append(1, *c);
+
+                *c = input->get();
+            }
+
+            string.value = parse_escape(string.value);
+
+            *c = input->get();
+
+            state->pos += string.value.size();
+
+            if (!pass) {
+                state->strings.push_back(string);
+            }
+
+            if (pass) {
+                output->write(string.value.c_str(), string.value.size());
+            }
+        }
+
+        if (command == "pad") {
+            while (std::isspace(*c))
+                *c = input->get();
+            
+            hyu32_t addr = parse_integer(c, input);
+
+            _log(debug, "pos=%08x, addr=%08x", state->pos, addr);
+
+            while (std::isspace(*c))
+                *c = input->get();
+
+            hyu8_t value = parse_integer(c, input);
+            
+            if (!pass) {
+                state->pos = addr - state->org;
+            } else {
+                while ((state->pos + state->org) < addr) {
+                    output->write((char*)&value, 1);
+
+                    state->pos++;
+                }
+            }
+        }
+
+        if (command == "blob") {
+            blob_t blob;
+
+            blob.addr = state->pos;
+
+            while (std::isspace(*c))
+                *c = input->get();
+        
+            if (!(std::isalpha(*c) || (*c == '_'))) {
+                // Expected number after org
+            }
+
+            while (std::isalnum(*c) || (*c == '_')) {
+                blob.name.append(1, *c);
+
+                *c = input->get();
+            }
+
+            while (std::isspace(*c))
+                *c = input->get();
+            
+            if (*c != '\"') {
+                // Expected string
+            }
+
+            *c = input->get();
+
+            std::string name;
+
+            while (*c != '\"') {
+                name.append(1, *c);
+
+                *c = input->get();
+            }
+
+            *c = input->get();
+
+            std::ifstream file(name, std::ios::binary | std::ios::ate);
+
+            if (!(file.is_open() && file.good())) {
+                _log(debug, "Couldn't open file \"%s\" for blob \"%s\"", name.c_str(), blob.name.c_str());
+
+                goto end;
+            }
+
+            blob.size = file.tellg();
+            _log(debug, "blob file name=%s, size=%u", name.c_str(), blob.size);
+
+            state->pos += blob.size;
+
+            if (!pass) {
+                state->blobs.push_back(blob);
+            }
+
+            if (pass) {
+                file.seekg(0);
+
+                char c = file.get();
+
+                while (!file.eof()) {
+                    output->write(&c, sizeof(char));
+
+                    c = file.get();
+                }
+            }
+        }
+
+        if (command == "load32") {
+            while (std::isspace(*c))
+                *c = input->get();
+            
+            if (*c == '%')
+                *c = input->get();
+
+            int reg = parse_register_number(c, input);
+
+            while (std::isspace(*c))
+                *c = input->get();
+
+            std::string operand = parse_operand(c, input);
+
+            state->pos += 8;
+            
+            if (pass) {
+                hyu32_t value = decode_operand(operand, state).integer;
+                _log(debug, "value=%08x", value);
+
+                instruction_t instruction;
+                hyu32_t opcode;
+
+                instruction.opcode = HY_LOAD;
+                instruction.encoding = REGX_IMM16;
+                instruction.imm16 = (value >> 16) & 0xffff;
+                instruction.sub_opcode = 5;
+                instruction.regx = reg;
+
+                opcode = assemble_instruction(instruction);
+
+                output->write((char*)&opcode, sizeof(hyu32_t));
+
+                instruction.opcode = HY_OR;
+                instruction.encoding = REGX_IMM16;
+                instruction.imm16 = value & 0xffff;
+                instruction.sub_opcode = 5;
+                instruction.regx = reg;
+
+                opcode = assemble_instruction(instruction);
+
+                output->write((char*)&opcode, sizeof(hyu32_t));
+            }
         }
 
         if (command == "undef") {
@@ -1332,54 +1637,64 @@ bool parse_preprocessor(char* c, std::istream* input, hyrisc_assembler_t* state)
                 *c = input->get();
             }
 
-            auto value_it = std::find_if(
-                std::begin(state->values),
-                std::end(state->values),
-                [name] (value_t value) { return value.name == name; }
-            );
+            if (!pass) {
+                auto value_it = std::find_if(
+                    std::begin(state->values),
+                    std::end(state->values),
+                    [name] (value_t value) { return value.name == name; }
+                );
 
-            if (value_it != std::end(state->values)) {
-                _log(debug, "undeffing %s", (*value_it).name.c_str());
-                state->values.erase(value_it);
-            }
+                if (value_it != std::end(state->values)) {
+                    if (!pass)
+                        _log(debug, "undeffing %s", (*value_it).name.c_str());
+                    state->values.erase(value_it);
+                }
 
-            auto label_it = std::find_if(
-                std::begin(state->labels),
-                std::end(state->labels),
-                [name] (value_t value) { return value.name == name; }
-            );
+                auto label_it = std::find_if(
+                    std::begin(state->labels),
+                    std::end(state->labels),
+                    [name] (value_t value) { return value.name == name; }
+                );
 
-            if (label_it != std::end(state->labels)) {
-                _log(debug, "undeffing %s", (*label_it).name.c_str());
-                state->values.erase(label_it);
+                if (label_it != std::end(state->labels)) {
+                    _log(debug, "undeffing %s", (*label_it).name.c_str());
+                    state->values.erase(label_it);
+                }
             }
         }
 
-        // Ignore trailing whitespace
-        while (std::isblank(*c) || std::isspace(*c) || (*c == '\x0d') || (*c == '\x0a'))
-            *c = input->get();
-        
-        return *c == '.';
+        end:
 
+        // Ignore trailing whitespace
+        while (std::isblank(*c) || std::isspace(*c) || (*c == '\x0d') || (*c == '\x0a')) {
+            
+            *c = input->get();
+        }
+
+        return *c == '.';
     } else if (*c == ':') {
         // Label
-        state->labels.push_back(value_t{ command, state->pos });
-        _log(debug, "label=%s:%08x", command.c_str(), state->pos);
+        if (!pass) {
+            state->labels.push_back(value_t{ command, state->pos });
+
+            _log(debug, "label=%s:%08x", command.c_str(), state->pos);
+        }
         *c = input->get();
     }
 }
 
-void assemble_input(std::istream* input, std::ostream* output, hyrisc_assembler_t* state = nullptr) {
+void assemble_input(std::istream* input, std::ostream* output, hyrisc_assembler_t* state = nullptr, int pass = 1) {
     char c = input->get();
 
     while (c != -1) {
-        while (parse_preprocessor(&c, input, state));
+        while (parse_preprocessor(&c, input, output, state, pass - 1));
 
         hyu32_t opcode = assemble(c, input, state);
 
         if (state) state->pos += 4;
 
-        output->write((char*)&opcode, sizeof(hyu32_t));
+        if (pass == 2)
+            output->write((char*)&opcode, sizeof(hyu32_t));
 
         while (std::isspace(c))
             c = input->get();
@@ -1389,7 +1704,7 @@ void assemble_input(std::istream* input, std::ostream* output, hyrisc_assembler_
 int main(int argc, const char* argv[]) {
     _log::init("hyrisc-a");
 
-    std::ofstream output("test.bin", std::ios::binary);
+    std::ofstream output(argv[2] ? std::string(argv[2]) : "output.bin", std::ios::binary);
 
     std::ifstream input(std::string(argv[1]), std::ios::binary);
 
@@ -1399,7 +1714,14 @@ int main(int argc, const char* argv[]) {
 
     _log(debug, "Assembling %s", argv[1]);
 
-    assemble_input(&input, &output, state);
+    assemble_input(&input, &output, state, 1);
+
+    input.clear();
+    input.seekg(0);
+
+    state->pos = 0;
+
+    assemble_input(&input, &output, state, 2);
 
     _log(debug, "Done");
 }
