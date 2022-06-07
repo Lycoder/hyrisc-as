@@ -1,7 +1,3 @@
-/*
-    addu %pc, 0xffff
-*/
-
 #include <fstream>
 #include <sstream>
 #include <iostream>
@@ -11,7 +7,7 @@
 #include <algorithm>
 #include <cstring>
 
-#include "../log.hpp"
+#include "log.hpp"
  
 static const std::string whitespace = " \n\r\t\f\v";
 
@@ -125,44 +121,6 @@ enum instruction_id_t : hyu8_t {
     ID_CMPZ  = 0xca
 };
 
-std::string hyrisc_mnemonics[] = {
-    "l", "li", "lui",      // LOAD
-    "lea",                 // LEA
-    "s", "st",             // STORE
-    "add", "addu", "adds", // ADD
-    "sub",                 // SUB
-    "mul",                 // MUL
-    "div",                 // DIV
-    "and",                 // AND
-    "or",                  // OR
-    "xor",                 // XOR
-    "not",                 // NOT
-    "neg",                 // NEG
-    "inc",                 // INC
-    "dec",                 // DEC
-    "rst",                 // RST
-    "tst",                 // TST
-    "cmp",                 // CMP
-    "sll",                 // SLL
-    "slr",                 // SLR
-    "sal",                 // SAL
-    "sar",                 // SAR
-    "rl",                  // RL
-    "rr",                  // RR
-    "jc",                  // JC
-    "jp",                  // JP
-    "bc",                  // BC
-    "jr",                  // JR
-    "jalc",                // JALC
-    "jpl",                 // JPL
-    "call",                // CALL
-    "ret",                 // RET
-    "rtl",                 // RTL
-    "push",                // PUSH
-    "pop",                 // POP
-    "nop"                  // NOP
-};
-
 bool match(std::string src, std::string dst) {
     if (src.size() != dst.size()) return false;
 
@@ -259,14 +217,6 @@ encoding_t decode_encoding(std::vector <operand_t>& operands) {
         }
     }
 }
-
-// CPU:
-// Hyrisc™ HY-2 Primary CPU @ 24 MHz
-// Hyrisc™ HY-1 Auxiliary CPU @ 12 MHz
-// Video:
-// Hyrisc™ DVSP-1 @ 60 Hz (Hyrisc Digital Video Signal Processor)
-// Sound:
-// Yamaha YMF292 + QSound Coprocessor or Sony SPU + Custom 65C816 Core
 
 int decode_mnemonic(std::string mnemonic, instruction_t* instruction) {
     if (mnemonic == "l")    {
@@ -1395,8 +1345,8 @@ bool parse_preprocessor(char* c, std::istream* input, std::ostream* output, hyri
 
             hyu32_t addr = parse_integer(c, input);
 
-            if (!pass)
-                _log(debug, "Setting origin to %08x", addr);
+            //if (!pass)
+                //_log(debug, "Setting origin to %08x", addr);
 
             state->org = addr;
         }
@@ -1433,7 +1383,7 @@ bool parse_preprocessor(char* c, std::istream* input, std::ostream* output, hyri
             if (!pass) {
                 state->values.push_back(value_t{ name, value });
 
-                _log(debug, "Creating value %s:%08x", name.c_str(), value);
+                //_log(debug, "Creating value %s:%08x", name.c_str(), value);
             }
         }
 
@@ -1491,7 +1441,7 @@ bool parse_preprocessor(char* c, std::istream* input, std::ostream* output, hyri
             
             hyu32_t addr = parse_integer(c, input);
 
-            _log(debug, "pos=%08x, addr=%08x", state->pos, addr);
+            //_log(debug, "pos=%08x, addr=%08x", state->pos, addr);
 
             while (std::isspace(*c))
                 *c = input->get();
@@ -1701,27 +1651,73 @@ void assemble_input(std::istream* input, std::ostream* output, hyrisc_assembler_
     }
 }
 
+#include "cli.hpp"
+
+#define STR1(m) #m
+#define STR(m) STR1(m)
+
 int main(int argc, const char* argv[]) {
     _log::init("hyrisc-a");
 
-    std::ofstream output(argv[2] ? std::string(argv[2]) : "output.bin", std::ios::binary);
+    cli::parse(argc, argv);
 
-    std::ifstream input(std::string(argv[1]), std::ios::binary);
+    if (cli::print_version) {
+#ifdef __linux__
+        std::cout << "hyrisc-as (Hyrisc assembler, Unix) " << STR(HYRISC_AS_VERSION_TAG) << " "
+            << STR(HYRISC_AS_COMMIT_HASH) << "\n"
+            << "Copyright (C) 2022 Lycoder (Lisandro Alarcon)\n"
+            << "License LGPLv3: GNU LGPL version 3 or later <https://www.gnu.org/licenses/lgpl-3.0.html>.\n"
+            << "This is free software: you are free to change and redistribute it.\n\n";
+#elif _WIN32
+        std::cout << "hyrisc-as.exe (Hyrisc assembler, Windows) " << STR(HYRISC_AS_VERSION_TAG) << " "
+            << STR(HYRISC_AS_COMMIT_HASH) << "\n"
+            << "Copyright (C) 2022 Lycoder (Lisandro Alarcon)\n"
+            << "License LGPLv3: GNU LGPL version 3 or later <https://www.gnu.org/licenses/lgpl-3.0.html>.\n"
+            << "This is free software: you are free to change and redistribute it.\n\n";
+#else
+        std::cout << "hyrisc-as (Hyrisc assembler) " << HYRISC_AS_VERSION_TAG << " "
+            << STR(HYRISC_AS_COMMIT_HASH) << "\n"
+            << "Copyright (C) 2022 Lycoder (Lisandro Alarcon)\n"
+            << "License LGPLv3: GNU LGPL version 3 or later <https://www.gnu.org/licenses/lgpl-3.0.html>.\n"
+            << "This is free software: you are free to change and redistribute it.\n\n";
+#endif
+        return 0;
+    }
 
-    hyrisc_assembler_t* state = new hyrisc_assembler_t;
+    std::string output_fn = cli::output_file.size() ? cli::output_file : "a.out";
 
-    std::memset(state, 0, sizeof(hyrisc_assembler_t));
+    std::ofstream output(output_fn, std::ios::binary);
 
-    _log(debug, "Assembling %s", argv[1]);
+    std::istream* input;
 
-    assemble_input(&input, &output, state, 1);
+    if (cli::input_file.size()) {
+        input = new std::ifstream(cli::input_file, std::ios::binary);
+    } else {
+        input = &std::cin;
+    }
 
-    input.clear();
-    input.seekg(0);
+    hyrisc_assembler_t* state;
 
-    state->pos = 0;
+    if (cli::generate_state) {
+        state = new hyrisc_assembler_t;
 
-    assemble_input(&input, &output, state, 2);
+        std::memset(state, 0, sizeof(hyrisc_assembler_t));
+    } else {
+        state = nullptr;
+    }
 
-    _log(debug, "Done");
+    _log(info, "Assembling %s", argv[1]);
+    
+    if (state) {
+        assemble_input(input, &output, state, 1);
+        
+        input->clear();
+        input->seekg(0);
+
+        state->pos = 0;
+    }
+
+    assemble_input(input, &output, state, 2);
+
+    _log(info, "Done!");
 }
