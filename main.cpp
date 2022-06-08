@@ -1693,7 +1693,7 @@ int main(int argc, const char* argv[]) {
     if (cli::input_file.size()) {
         input = new std::ifstream(cli::input_file, std::ios::binary);
 
-        if (!(input.good() && input.is_open())) {
+        if (!input->good()) {
             _log(error, "Couldn't open file \"%s\"", cli::input_file.c_str());
             _log(error, "No input files");
 
