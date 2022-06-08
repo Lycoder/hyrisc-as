@@ -1692,8 +1692,17 @@ int main(int argc, const char* argv[]) {
 
     if (cli::input_file.size()) {
         input = new std::ifstream(cli::input_file, std::ios::binary);
+
+        if (!(input.good() && input.is_open())) {
+            _log(error, "Couldn't open file \"%s\"", cli::input_file.c_str());
+            _log(error, "No input files");
+
+            return 1;
+        }
     } else {
         input = &std::cin;
+
+        _log(info, "Assembling standard input");
     }
 
     hyrisc_assembler_t* state;
@@ -1706,7 +1715,8 @@ int main(int argc, const char* argv[]) {
         state = nullptr;
     }
 
-    _log(info, "Assembling %s", argv[1]);
+    if (cli::input_file.size())
+        _log(info, "Assembling %s", cli::input_file.c_str());
     
     if (state) {
         assemble_input(input, &output, state, 1);
