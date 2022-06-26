@@ -1657,7 +1657,7 @@ void assemble_input(std::istream* input, std::ostream* output, hyrisc_assembler_
 #define STR(m) STR1(m)
 
 int main(int argc, const char* argv[]) {
-    _log::init("hyrisc-a");
+    _log::init("hyrisc-as");
 
     cli::parse(argc, argv);
 

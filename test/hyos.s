@@ -6,7 +6,8 @@
 
 .org 0x90000000
 
-.defs HYOS_PROGRAM_ID "HYBMHyOS\0"
+.defs HYBIOS_BOOT_SIGNATURE "HYBM"
+.defs HYOS_PROGRAM_ID "HyOS\0"
 
 .init:
     b ._main
